@@ -4,6 +4,7 @@ import swaggerUi from "swagger-ui-express";
 import YAML from "yamljs";
 
 import currenciesRoutes from "./routes/currencies.routes";
+import ratesRoutes from "./routes/rates.routes";
 
 const app = express();
 
@@ -14,6 +15,7 @@ const swaggerDocument = YAML.load("./swagger.yaml");
 
 app.use("/docs", swaggerUi.serve, swaggerUi.setup(swaggerDocument));
 app.use("/api/currencies", currenciesRoutes);
+app.use("/api/rates", ratesRoutes);
 
 app.use((req: Request, res: Response) => {
 	res.status(404).json({ error: "Route not found" });
