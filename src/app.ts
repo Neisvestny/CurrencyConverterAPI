@@ -1,19 +1,19 @@
 import express, { Request, Response, NextFunction } from "express";
-
+import cookieParser from "cookie-parser";
 import swaggerUi from "swagger-ui-express";
 import YAML from "yamljs";
+
+import currenciesRoutes from "./routes/currencies.routes";
 
 const app = express();
 
 app.use(express.json());
+app.use(cookieParser());
 
 const swaggerDocument = YAML.load("./swagger.yaml");
 
 app.use("/docs", swaggerUi.serve, swaggerUi.setup(swaggerDocument));
-
-app.get("/", (req: Request, res: Response) => {
-	res.send("Hello, World!");
-});
+app.use("/api/currencies", currenciesRoutes);
 
 app.use((req: Request, res: Response) => {
 	res.status(404).json({ error: "Route not found" });
