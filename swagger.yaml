@@ -1,0 +1,29 @@
+openapi: 3.0.0
+
+info:
+    title: 12devs API
+    version: 1.0.0
+    description: Simple Express API
+
+paths:
+    /:
+        get:
+            summary: Get hello message
+            description: Returns a simple Hello World string
+            responses:
+                200:
+                    description: Successful response
+                    content:
+                        text/plain:
+                            schema:
+                                type: string
+                                example: Hello, World!
+
+components:
+    schemas:
+        ErrorResponse:
+            type: object
+            properties:
+                error:
+                    type: string
+                    example: Route not found
