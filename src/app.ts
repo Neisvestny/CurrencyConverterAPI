@@ -3,6 +3,7 @@ import cookieParser from "cookie-parser";
 import swaggerUi from "swagger-ui-express";
 import YAML from "yamljs";
 
+import { userMiddleware } from "./middlewares/user.middleware";
 import currenciesRoutes from "./routes/currencies.routes";
 import ratesRoutes from "./routes/rates.routes";
 
@@ -10,6 +11,8 @@ const app = express();
 
 app.use(express.json());
 app.use(cookieParser());
+
+app.use(userMiddleware);
 
 const swaggerDocument = YAML.load("./swagger.yaml");
 
