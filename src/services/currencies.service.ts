@@ -12,12 +12,27 @@ export const getCurrenciesService = async () => {
 		return cache;
 	}
 
-	const { data } = await axios.get("https://open.er-api.com/v6/latest/USD");
+	try {
+		const { data } = await axios.get("https://open.er-api.com/v6/latest/USD", {
+			timeout: 10000,
+		});
 
-	const currencies = Object.keys(data.rates);
+		if (!data.rates) {
+			throw new Error("Invalid response from exchange rate API");
+		}
 
-	cache = currencies;
-	lastFetch = now;
+		const currencies = Object.keys(data.rates).sort();
 
-	return currencies;
+		cache = currencies;
+		lastFetch = now;
+
+		return currencies;
+	} catch (error) {
+		if (cache) {
+			return cache;
+		}
+		throw new Error(`Failed to fetch currencies`, {
+			cause: error,
+		});
+	}
 };
