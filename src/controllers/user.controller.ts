@@ -34,17 +34,24 @@ export const updateUser = async (req: Request, res: Response) => {
 		const { base_currency, favorites } = req.body;
 
 		const updates: any = {};
-		
+
 		if (base_currency !== undefined) {
-			if (typeof base_currency !== 'string' || !/^[A-Z]{3}$/i.test(base_currency)) {
-				return res.status(400).json({ error: "Invalid base_currency format" });
+			if (
+				typeof base_currency !== "string" ||
+				!/^[A-Z]{3}$/i.test(base_currency)
+			) {
+				return res
+					.status(400)
+					.json({ error: "Invalid base_currency format" });
 			}
 			updates.base_currency = base_currency.toUpperCase();
 		}
-		
+
 		if (favorites !== undefined) {
 			if (!Array.isArray(favorites)) {
-				return res.status(400).json({ error: "favorites must be an array" });
+				return res
+					.status(400)
+					.json({ error: "favorites must be an array" });
 			}
 			updates.favorites = favorites;
 		}

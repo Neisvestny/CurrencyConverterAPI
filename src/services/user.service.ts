@@ -19,7 +19,7 @@ export const updateUserSettings = async (
 	updates: {
 		base_currency?: string;
 		favorites?: string[];
-	}
+	},
 ) => {
 	const { data, error } = await supabase
 		.from("user_settings")

@@ -22,7 +22,9 @@ export const userMiddleware = async (
 
 		const { error } = await supabase
 			.from("user_settings")
-			.upsert([{ user_id: userId }], { onConflict: "user_id" });
+			.upsert([{ user_id: userId, base_currency: "USD" }], {
+				onConflict: "user_id",
+			});
 
 		if (error) {
 			throw new Error(`Supabase error: ${error.message}`);
