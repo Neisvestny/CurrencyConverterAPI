@@ -3,6 +3,7 @@ import cookieParser from "cookie-parser";
 import swaggerUi from "swagger-ui-express";
 import YAML from "yamljs";
 
+import { AppError } from "./utils/AppError";
 import { userMiddleware } from "./middlewares/user.middleware";
 import currenciesRoutes from "./routes/currencies.routes";
 import ratesRoutes from "./routes/rates.routes";
@@ -22,13 +23,20 @@ app.use("/api/currencies", currenciesRoutes);
 app.use("/api/rates", ratesRoutes);
 app.use("/api/user", userRoutes);
 
-app.use((req: Request, res: Response) => {
-	res.status(404).json({ error: "Route not found" });
+app.use((req: Request, res: Response, next: NextFunction) => {
+	next(new AppError(404, "NOT_FOUND", "Route not found"));
 });
 
-app.use((err: Error, req: Request, res: Response, next: NextFunction) => {
-	console.error(err.stack);
-	res.status(500).json({ error: err.message || "Something went wrong!" });
+app.use((err: any, req: Request, res: Response, next: NextFunction) => {
+	const status = err.statusCode || 500;
+
+	res.status(status).json({
+		error: {
+			code: err.code || "INTERNAL_ERROR",
+			message: err.message || "Something went wrong",
+			details: err.details || null,
+		},
+	});
 });
 
 export default app;

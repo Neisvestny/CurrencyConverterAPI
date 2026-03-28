@@ -1,5 +1,6 @@
 import axios from "axios";
 import { supabase } from "../lib/supabase";
+import { AppError } from "../utils/AppError";
 
 type CacheEntry = {
 	data: any;
@@ -21,14 +22,24 @@ const resolveBaseCurrency = async (
 	base?: string,
 	userId?: string,
 ): Promise<string> => {
-	if (base) return base;
+	const normalizedBase = normalizeBase(base);
+	if (normalizedBase) return normalizedBase;
 
 	if (userId) {
-		const { data } = await supabase
+		const { data, error } = await supabase
 			.from("user_settings")
 			.select("base_currency")
 			.eq("user_id", userId)
 			.maybeSingle();
+
+		if (error) {
+			throw new AppError(
+				500,
+				"DATABASE_ERROR",
+				"Failed to fetch user settings",
+				{ message: error.message },
+			);
+		}
 
 		if (data?.base_currency) {
 			return data.base_currency;
@@ -38,21 +49,46 @@ const resolveBaseCurrency = async (
 	return "USD";
 };
 
+const normalizeBase = (base?: string): string | undefined => {
+	if (!base) return undefined;
+
+	const normalized = base.trim().toUpperCase();
+
+	if (!/^[A-Z]{3}$/.test(normalized)) {
+		throw new AppError(
+			400,
+			"INVALID_REQUEST",
+			"Base must be a 3-letter currency code (e.g. USD, EUR)",
+		);
+	}
+
+	return normalized;
+};
+
 const normalizeTargets = (targets?: string): string => {
 	if (!targets) return "ALL";
 
-	return targets
+	const validCurrencies = targets
 		.split(",")
 		.map((t) => t.trim().toUpperCase())
-		.sort()
-		.join(",");
+		.filter((t) => /^[A-Z]{3}$/.test(t));
+
+	if (validCurrencies.length === 0) {
+		throw new AppError(
+			400,
+			"INVALID_REQUEST",
+			"Targets must be 3-letter currency codes (e.g. USD, EUR)",
+		);
+	}
+
+	return validCurrencies.sort().join(",");
 };
 
 const buildCacheKey = (
 	userId: string | undefined,
 	base: string,
 	targets: string,
-) => `${userId}_${base}_${targets}`;
+) => `${userId || "guest"}_${base}_${targets}`;
 
 const getFromMemoryCache = (key: string) => {
 	const cached = requestCache.get(key);
@@ -72,7 +108,7 @@ const saveToMemoryCache = (key: string, data: any) => {
 };
 
 const getFromDbCache = async (base: string, targets: string) => {
-	const { data } = await supabase
+	const { data, error } = await supabase
 		.from("exchange_rates_cache")
 		.select("*")
 		.eq("base_currency", base)
@@ -81,28 +117,68 @@ const getFromDbCache = async (base: string, targets: string) => {
 		.limit(1)
 		.maybeSingle();
 
+	if (error) {
+		throw new AppError(
+			500,
+			"DATABASE_ERROR",
+			"Failed to fetch rates from database",
+			{ message: error.message },
+		);
+	}
+
 	if (!data) return null;
 
 	const isFresh = Date.now() - new Date(data.created_at).getTime() < ONE_DAY;
+
 	return isFresh ? { base: data.base_currency, rates: data.rates } : null;
 };
 
 const saveToDbCache = async (base: string, targets: string, response: any) => {
-	const { data, error } = await supabase.from("exchange_rates_cache").upsert({
-		base_currency: base,
-		targets,
-		rates: response.rates,
-	});
+	const { error } = await supabase.from("exchange_rates_cache").upsert(
+		{
+			base_currency: base,
+			targets,
+			rates: response.rates,
+		},
+		{
+			onConflict: "base_currency,targets",
+		},
+	);
 
-	if (error) throw Error(`DB INSERT ERROR: ${error.message}`);
+	if (error) {
+		throw new AppError(
+			500,
+			"DATABASE_ERROR",
+			"Failed to save rates to database",
+			{ message: error.message },
+		);
+	}
 };
 
 const fetchRatesFromApi = async (base: string) => {
-	const { data } = await axios.get(
-		`https://open.er-api.com/v6/latest/${base}`,
-	);
+	try {
+		const { data } = await axios.get(
+			`https://open.er-api.com/v6/latest/${base}`,
+			{ timeout: 10000 },
+		);
 
-	return data.rates;
+		if (!data?.rates) {
+			throw new AppError(
+				502,
+				"EXTERNAL_API_ERROR",
+				"Invalid response from exchange rate API",
+			);
+		}
+
+		return data.rates;
+	} catch (error: any) {
+		throw new AppError(
+			503,
+			"SERVICE_UNAVAILABLE",
+			"Failed to fetch exchange rates",
+			{ message: error.message },
+		);
+	}
 };
 
 const filterRates = (
@@ -130,28 +206,41 @@ export const getRatesService = async ({
 	targets,
 	userId,
 }: GetRatesParams) => {
-	const finalBase = await resolveBaseCurrency(base, userId);
-	const normalizedTargets = normalizeTargets(targets);
-	const cacheKey = buildCacheKey(userId, finalBase, normalizedTargets);
+	try {
+		const finalBase = await resolveBaseCurrency(base, userId);
+		const normalizedTargets = normalizeTargets(targets);
+		const cacheKey = buildCacheKey(userId, finalBase, normalizedTargets);
 
-	// memory cache
-	const memoryData = getFromMemoryCache(cacheKey);
-	if (memoryData) return memoryData;
+		// memory cache
+		const memoryData = getFromMemoryCache(cacheKey);
+		if (memoryData) return memoryData;
 
-	// db cache
-	const dbData = await getFromDbCache(finalBase, normalizedTargets);
-	if (dbData) {
-		saveToMemoryCache(cacheKey, dbData);
-		return dbData;
+		// db cache
+		const dbData = await getFromDbCache(finalBase, normalizedTargets);
+		if (dbData) {
+			saveToMemoryCache(cacheKey, dbData);
+			return dbData;
+		}
+
+		// api
+		const rates = await fetchRatesFromApi(finalBase);
+		const result = filterRates(rates, finalBase, normalizedTargets);
+
+		// save caches
+		await saveToDbCache(finalBase, normalizedTargets, result);
+		saveToMemoryCache(cacheKey, result);
+
+		return result;
+	} catch (error: any) {
+		if (error instanceof AppError) {
+			throw error;
+		}
+
+		throw new AppError(
+			500,
+			"INTERNAL_ERROR",
+			"Failed to get exchange rates",
+			{ message: error.message },
+		);
 	}
-
-	// api
-	const rates = await fetchRatesFromApi(finalBase);
-	const result = filterRates(rates, finalBase, normalizedTargets);
-
-	// save caches
-	await saveToDbCache(finalBase, normalizedTargets, result);
-	saveToMemoryCache(cacheKey, result);
-
-	return result;
 };

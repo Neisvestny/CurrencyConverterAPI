@@ -1,34 +1,41 @@
-import { Request, Response } from "express";
+import { Request, Response, NextFunction } from "express";
 import { getUserById, updateUserSettings } from "../services/user.service";
+import { AppError } from "../utils/AppError";
 
-export const getUserData = async (req: Request, res: Response) => {
+export const getUserData = async (
+	req: Request,
+	res: Response,
+	next: NextFunction
+) => {
 	try {
 		const userId = req.userId;
 
 		if (!userId) {
-			return res.status(401).json({ error: "Unauthorized" });
+			return next(
+				new AppError(401, "UNAUTHORIZED", "User is not authenticated")
+			);
 		}
 
 		const user = await getUserById(userId);
 
-		if (!user) {
-			return res.status(404).json({ error: "User not found" });
-		}
-
 		return res.json(user);
-	} catch (err: any) {
-		return res.status(500).json({
-			error: err.message || "Internal server error",
-		});
+	} catch (err) {
+		next(err);
 	}
 };
 
-export const updateUser = async (req: Request, res: Response) => {
+export const updateUser = async (
+	req: Request,
+	res: Response,
+	next: NextFunction
+) => {
 	try {
 		const userId = req.userId;
 
 		if (!userId) {
-			return res.status(401).json({ error: "Unauthorized" });
+			return next(
+				new AppError(401, "UNAUTHORIZED", "User is not authenticated")
+			);
 		}
 
 		const { base_currency, favorites } = req.body;
@@ -40,32 +47,45 @@ export const updateUser = async (req: Request, res: Response) => {
 				typeof base_currency !== "string" ||
 				!/^[A-Z]{3}$/i.test(base_currency)
 			) {
-				return res
-					.status(400)
-					.json({ error: "Invalid base_currency format" });
+				return next(
+					new AppError(
+						400,
+						"INVALID_BASE_CURRENCY",
+						"Base currency must be a valid 3-letter code",
+						{ value: base_currency }
+					)
+				);
 			}
 			updates.base_currency = base_currency.toUpperCase();
 		}
 
 		if (favorites !== undefined) {
 			if (!Array.isArray(favorites)) {
-				return res
-					.status(400)
-					.json({ error: "favorites must be an array" });
+				return next(
+					new AppError(
+						400,
+						"INVALID_FAVORITES",
+						"Favorites must be an array of currency codes"
+					)
+				);
 			}
 			updates.favorites = favorites;
 		}
 
 		if (Object.keys(updates).length === 0) {
-			return res.status(400).json({ error: "No valid fields to update" });
+			return next(
+				new AppError(
+					400,
+					"NO_VALID_FIELDS",
+					"No valid fields provided for update"
+				)
+			);
 		}
 
 		const updatedUser = await updateUserSettings(userId, updates);
 
 		return res.json(updatedUser);
-	} catch (err: any) {
-		return res.status(500).json({
-			error: err.message || "Internal server error",
-		});
+	} catch (err) {
+		next(err);
 	}
 };
