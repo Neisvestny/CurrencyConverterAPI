@@ -18,35 +18,58 @@ interface GetRatesParams {
 	userId?: string;
 }
 
-const resolveBaseCurrency = async (
-	base?: string,
-	userId?: string,
-): Promise<string> => {
+const getUserSettings = async (userId?: string) => {
+	if (!userId) return null;
+
+	const { data, error } = await supabase
+		.from("user_settings")
+		.select("base_currency, favorites")
+		.eq("user_id", userId)
+		.maybeSingle();
+
+	if (error) {
+		throw new AppError(
+			500,
+			"DATABASE_ERROR",
+			"Failed to fetch user settings",
+			{ message: error.message },
+		);
+	}
+
+	return data;
+};
+
+const resolveBaseCurrency = (
+	base: string | undefined,
+	userSettings: any,
+): string => {
 	const normalizedBase = normalizeBase(base);
 	if (normalizedBase) return normalizedBase;
 
-	if (userId) {
-		const { data, error } = await supabase
-			.from("user_settings")
-			.select("base_currency")
-			.eq("user_id", userId)
-			.maybeSingle();
-
-		if (error) {
-			throw new AppError(
-				500,
-				"DATABASE_ERROR",
-				"Failed to fetch user settings",
-				{ message: error.message },
-			);
-		}
-
-		if (data?.base_currency) {
-			return data.base_currency;
-		}
+	if (userSettings?.base_currency) {
+		return userSettings.base_currency;
 	}
 
 	return "USD";
+};
+
+const resolveTargets = (
+	targets: string | undefined,
+	userSettings: any,
+): string => {
+	if (targets) {
+		return normalizeTargets(targets);
+	}
+
+	if (userSettings?.favorites?.length > 0) {
+		return userSettings.favorites
+			.map((t: string) => t.trim().toUpperCase())
+			.filter((t: string) => /^[A-Z]{3}$/.test(t))
+			.sort()
+			.join(",");
+	}
+
+	return "ALL";
 };
 
 const normalizeBase = (base?: string): string | undefined => {
@@ -68,16 +91,22 @@ const normalizeBase = (base?: string): string | undefined => {
 const normalizeTargets = (targets?: string): string => {
 	if (!targets) return "ALL";
 
-	const validCurrencies = targets
+	const normalized = targets.trim().toUpperCase();
+
+	if (normalized === "ALL") {
+		return "ALL";
+	}
+
+	const validCurrencies = normalized
 		.split(",")
-		.map((t) => t.trim().toUpperCase())
+		.map((t) => t.trim())
 		.filter((t) => /^[A-Z]{3}$/.test(t));
 
 	if (validCurrencies.length === 0) {
 		throw new AppError(
 			400,
 			"INVALID_REQUEST",
-			"Targets must be 3-letter currency codes (e.g. USD, EUR)",
+			"Targets must be 3-letter currency codes (e.g. USD, EUR) or ALL",
 		);
 	}
 
@@ -207,8 +236,10 @@ export const getRatesService = async ({
 	userId,
 }: GetRatesParams) => {
 	try {
-		const finalBase = await resolveBaseCurrency(base, userId);
-		const normalizedTargets = normalizeTargets(targets);
+		const userSettings = await getUserSettings(userId);
+
+		const finalBase = resolveBaseCurrency(base, userSettings);
+		const normalizedTargets = resolveTargets(targets, userSettings);
 		const cacheKey = buildCacheKey(userId, finalBase, normalizedTargets);
 
 		// memory cache

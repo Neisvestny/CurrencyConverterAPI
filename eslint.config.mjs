@@ -1,8 +1,10 @@
 import js from "@eslint/js";
 
 export default [
+	{
+		ignores: ["dist/**"],
+	},
 	js.configs.recommended,
-
 	{
 		files: ["**/*.ts"],
 		languageOptions: {
@@ -10,6 +12,9 @@ export default [
 			parserOptions: {
 				sourceType: "module",
 				ecmaVersion: "latest",
+			},
+			globals: {
+				process: "readonly",
 			},
 		},
 		plugins: {

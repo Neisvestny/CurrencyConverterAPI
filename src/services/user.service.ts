@@ -76,7 +76,7 @@ const normalizeCurrency = (value: string): string => {
 		throw new AppError(
 			400,
 			"INVALID_REQUEST",
-			"Currency must be a 3-letter code (e.g. USD, EUR)"
+			"Currency must be a 3-letter code (e.g. USD, EUR)",
 		);
 	}
 
@@ -86,29 +86,56 @@ const normalizeCurrency = (value: string): string => {
 const normalizeFavorites = (favorites?: string[]): string[] | undefined => {
 	if (!favorites) return undefined;
 
-	const valid = favorites
-		.map((f) => normalizeCurrency(f));
+	const valid = favorites.map((f) => normalizeCurrency(f));
 
 	return [...new Set(valid)];
 };
 
+type UpdateUserSettingsInput = {
+	base_currency?: string;
+	favorites?: string[];
+};
+
 export const updateUserSettings = async (
 	userId: string,
-	updates: {
-		base_currency?: string;
-		favorites?: string[];
-	},
+	updates: UpdateUserSettingsInput,
 ) => {
-	const cacheKey = buildCacheKey(userId);
+	if (!updates || typeof updates !== "object") {
+		throw new AppError(400, "INVALID_BODY", "Invalid request body");
+	}
 
-	const normalizedUpdates = {
-		...(updates.base_currency && {
-			base_currency: normalizeCurrency(updates.base_currency),
-		}),
-		...(updates.favorites && {
-			favorites: normalizeFavorites(updates.favorites),
-		}),
-	};
+	const normalizedUpdates: Partial<UpdateUserSettingsInput> = {};
+
+	// base_currency
+	if (updates.base_currency !== undefined) {
+		normalizedUpdates.base_currency = normalizeCurrency(
+			updates.base_currency,
+		);
+	}
+
+	// favorites
+	if (updates.favorites !== undefined) {
+		if (!Array.isArray(updates.favorites)) {
+			throw new AppError(
+				400,
+				"INVALID_FAVORITES",
+				"Favorites must be an array",
+			);
+		}
+
+		const normalized = normalizeFavorites(updates.favorites);
+
+		if (normalized !== undefined) {
+			normalizedUpdates.favorites = normalized;
+		}
+	}
+
+	// nothing to update
+	if (Object.keys(normalizedUpdates).length === 0) {
+		throw new AppError(400, "NO_VALID_FIELDS", "No valid fields provided");
+	}
+
+	const cacheKey = buildCacheKey(userId);
 
 	const { data, error } = await supabase
 		.from("user_settings")

@@ -7,7 +7,9 @@ export const getCurrencies = async (
 	next: NextFunction,
 ) => {
 	try {
-		const data = await getCurrenciesService({ userId: req.userId });
+		const params = req.userId ? { userId: req.userId } : {};
+
+		const data = await getCurrenciesService(params);
 		res.json(data);
 	} catch (err) {
 		next(err);

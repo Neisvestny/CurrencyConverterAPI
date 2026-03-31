@@ -15,8 +15,6 @@ info:
 servers:
     - url: http://localhost:3000
       description: Development server
-    - url: /api
-      description: API base path
 
 paths:
     /api/currencies:
@@ -54,6 +52,11 @@ paths:
                 2. User settings (if available)
                 3. Default: USD
 
+                Target currencies priority:
+                1. Query parameter `targets`
+                2. User favorite currencies (if available)
+                3. All currencies if no favorites or `targets=all`
+
                 Results may be cached for performance optimization.
             tags:
                 - Rates
@@ -71,7 +74,13 @@ paths:
                   required: false
                   description: |
                       Comma-separated list of target currencies.
-                      If not provided, all available currencies are returned.
+
+                      Behavior priority:
+                      1. If `targets` is provided → use it
+                      2. If not → use user's favorite currencies (if available)
+                      3. If no favorites OR `targets=all` → return all currencies
+
+                      Use `all` to explicitly request all available currencies.
                   schema:
                       type: string
                       example: EUR,GBP,JPY
