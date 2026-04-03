@@ -54,7 +54,7 @@ app.use((req: Request, res: Response, next: NextFunction) => {
 	next(new AppError(404, "NOT_FOUND", "Route not found"));
 });
 
-app.use((err: any, req: Request, res: Response) => {
+app.use((err: any, req: Request, res: Response, next: NextFunction) => {
 	const status = err.statusCode || 500;
 
 	const baseLog = {
