@@ -1,10 +1,11 @@
 import pino from "pino";
+import { env } from "@/config/env";
 
-const isDev = process.env["NODE_ENV"] !== "production";
+const isPretty = env.LOG_PRETTY == true;
 
 export const logger = pino({
-	level: process.env["LOG_LEVEL"] || "info",
-	...(isDev && {
+	level: env.LOG_LEVEL || "info",
+	...(isPretty && {
 		transport: {
 			target: "pino-pretty",
 			options: {

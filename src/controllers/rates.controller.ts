@@ -1,26 +1,31 @@
-import { Request, Response, NextFunction } from "express";
-import { getRatesService } from "../services/rates.service";
+import { Request, Response } from "express";
+import { getRatesService } from "@/services/rates.service";
 
-export const getRates = async (
-	req: Request,
-	res: Response,
-	next: NextFunction,
-) => {
-	try {
-		const { base, targets } = req.query;
+type RatesParams = {
+	base?: string;
+	targets?: string;
+	userId?: string;
+};
 
-		const params = {
-			...(typeof base === "string" ? { base } : {}),
-			...(typeof targets === "string" ? { targets } : {}),
-			...(req.cookies["user_id"]
-				? { userId: req.cookies["user_id"] }
-				: {}),
-		};
+export const getRates = async (req: Request, res: Response) => {
+	const { base, targets } = req.query;
 
-		const result = await getRatesService(params);
+	const params: RatesParams = {};
 
-		res.json(result);
-	} catch (err) {
-		next(err);
+	if (typeof base === "string") {
+		params.base = base;
 	}
+
+	if (typeof targets === "string") {
+		params.targets = targets;
+	}
+
+	const userId = req.cookies["user_id"];
+	if (userId) {
+		params.userId = userId;
+	}
+
+	const result = await getRatesService(params);
+
+	res.json(result);
 };

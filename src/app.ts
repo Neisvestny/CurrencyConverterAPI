@@ -1,89 +1,33 @@
-import express, { Request, Response, NextFunction } from "express";
+import "express-async-errors";
+import express from "express";
 import cookieParser from "cookie-parser";
-import swaggerUi from "swagger-ui-express";
-import YAML from "yamljs";
+import { StatusCodes } from "http-status-codes";
 
-import { logger } from "./lib/logger";
-import { AppError } from "./utils/AppError";
-
+import routes from "./routes";
 import { userMiddleware } from "./middlewares/user.middleware";
-import currenciesRoutes from "./routes/currencies.routes";
-import ratesRoutes from "./routes/rates.routes";
-import userRoutes from "./routes/user.routes";
+import { requestLogger } from "./middlewares/logger.middleware";
+import { errorHandler } from "./middlewares/error.middleware";
+import { setupSwagger } from "./middlewares/swagger.middleware";
+
+import { AppError } from "./utils/AppError";
 
 const app = express();
 
 app.use(express.json());
 app.use(cookieParser());
 
-app.use((req, res, next) => {
-	const start = Date.now();
+app.use(requestLogger);
 
-	res.on("finish", () => {
-		const duration = Date.now() - start;
-
-		if (res.statusCode >= 500) {
-			logger.error(
-				`${req.method} ${res.statusCode} ${req.originalUrl} ${duration}ms`,
-			);
-		} else if (res.statusCode >= 400) {
-			logger.warn(
-				`${req.method} ${res.statusCode} ${req.originalUrl} ${duration}ms`,
-			);
-		} else {
-			logger.info(
-				`${req.method} ${res.statusCode} ${req.originalUrl} ${duration}ms`,
-			);
-		}
-	});
-
-	next();
-});
+setupSwagger(app);
 
 app.use("/api", userMiddleware);
 
-const swaggerDocument = YAML.load("./swagger.yaml");
+app.use("/api", routes);
 
-app.use("/docs", swaggerUi.serve, swaggerUi.setup(swaggerDocument));
-
-app.use("/api/currencies", currenciesRoutes);
-app.use("/api/rates", ratesRoutes);
-app.use("/api/user", userRoutes);
-
-app.use((req: Request, res: Response, next: NextFunction) => {
-	next(new AppError(404, "NOT_FOUND", "Route not found"));
+app.use((req, res, next) => {
+	next(new AppError(StatusCodes.NOT_FOUND, "NOT_FOUND", "Route not found"));
 });
 
-app.use((err: any, req: Request, res: Response, next: NextFunction) => {
-	const status = err.statusCode || 500;
-
-	const baseLog = {
-		method: req.method,
-		url: req.originalUrl,
-		status,
-	};
-
-	if (status >= 500) {
-		logger.error(
-			{
-				...baseLog,
-				error: {
-					message: err.message,
-					code: err.code,
-					stack: err.stack,
-				},
-			},
-			"internal error",
-		);
-	}
-
-	res.status(status).json({
-		error: {
-			code: err.code || "INTERNAL_ERROR",
-			message: err.message || "Something went wrong",
-			details: err.details || null,
-		},
-	});
-});
+app.use(errorHandler);
 
 export default app;

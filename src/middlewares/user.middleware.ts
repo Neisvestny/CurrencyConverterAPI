@@ -1,11 +1,7 @@
 import { Request, Response, NextFunction } from "express";
-import crypto from "crypto";
-import { supabase } from "../lib/supabase";
-
-const isUUID = (id: string) =>
-	/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
-		id,
-	);
+import { v4 as uuidv4, validate as uuidValidate } from "uuid";
+import { env } from "@/config/env";
+import { supabase } from "@/lib/supabase";
 
 export const userMiddleware = async (
 	req: Request,
@@ -15,13 +11,13 @@ export const userMiddleware = async (
 	try {
 		let userId = req.cookies["user_id"];
 
-		if (!userId || !isUUID(userId)) {
-			userId = crypto.randomUUID();
+		if (!userId || !uuidValidate(userId)) {
+			userId = uuidv4();
 
 			res.cookie("user_id", userId, {
 				httpOnly: true,
 				sameSite: "lax",
-				secure: process.env["NODE_ENV"] === "production",
+				secure: env.NODE_ENV === "production",
 			});
 		}
 

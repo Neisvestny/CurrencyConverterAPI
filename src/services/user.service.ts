@@ -1,5 +1,8 @@
-import { supabase } from "../lib/supabase";
-import { AppError } from "../utils/AppError";
+import { supabase } from "@/lib/supabase";
+import { MemoryCache } from "@/lib/cache/memoryCache";
+import { AppError } from "@/utils/AppError";
+import { normalizeCurrency } from "@/utils/currency"; // ← больше не дублируем
+import { StatusCodes } from "http-status-codes";
 
 type UserSettings = {
 	user_id: string;
@@ -8,23 +11,14 @@ type UserSettings = {
 	updated_at: string;
 };
 
-type CacheEntry = {
-	data: UserSettings;
-	timestamp: number;
+type UpdateUserSettingsInput = {
+	base_currency?: string;
+	favorites?: string[];
 };
-
-const requestCache = new Map<string, CacheEntry>();
 
 const FIVE_MIN = 5 * 60 * 1000;
-
+const memoryCache = new MemoryCache<UserSettings>(FIVE_MIN);
 const buildCacheKey = (userId: string) => `user_${userId}`;
-
-const saveToMemoryCache = (key: string, data: UserSettings) => {
-	requestCache.set(key, {
-		data,
-		timestamp: Date.now(),
-	});
-};
 
 const getUserFromDb = async (userId: string): Promise<UserSettings> => {
 	const { data, error } = await supabase
@@ -33,134 +27,107 @@ const getUserFromDb = async (userId: string): Promise<UserSettings> => {
 		.eq("user_id", userId)
 		.maybeSingle();
 
-	if (error) {
-		throw new AppError(500, "DATABASE_ERROR", "Failed to fetch user", {
-			message: error.message,
-		});
-	}
-
-	if (!data) {
-		throw new AppError(404, "USER_NOT_FOUND", "User not found", { userId });
-	}
+	if (error)
+		throw new AppError(
+			StatusCodes.INTERNAL_SERVER_ERROR,
+			"DATABASE_ERROR",
+			"Failed to fetch user",
+			{
+				message: error.message,
+			},
+		);
+	if (!data)
+		throw new AppError(
+			StatusCodes.NOT_FOUND,
+			"USER_NOT_FOUND",
+			"User not found",
+			{ userId },
+		);
 
 	return data;
 };
 
-export const getUserById = async (userId: string) => {
+export const getUserById = async (userId: string): Promise<UserSettings> => {
 	const cacheKey = buildCacheKey(userId);
-	const cached = requestCache.get(cacheKey);
+	const cached = memoryCache.get(cacheKey);
 
 	if (cached) {
-		const isExpired = Date.now() - cached.timestamp > FIVE_MIN;
-
-		if (!isExpired) {
-			return cached.data;
-		}
-
+		// stale-while-revalidate: отдаём сразу, обновляем в фоне
 		getUserFromDb(userId)
-			.then((data) => saveToMemoryCache(cacheKey, data))
+			.then((data) => memoryCache.set(cacheKey, data))
 			.catch(() => {});
 
-		return cached.data;
+		return cached;
 	}
 
 	const data = await getUserFromDb(userId);
-	saveToMemoryCache(cacheKey, data);
+	memoryCache.set(cacheKey, data);
 	return data;
 };
 
-const normalizeCurrency = (value: string): string => {
-	const normalized = value.trim().toUpperCase();
-
-	if (!/^[A-Z]{3}$/.test(normalized)) {
-		throw new AppError(
-			400,
-			"INVALID_REQUEST",
-			"Currency must be a 3-letter code (e.g. USD, EUR)",
-		);
-	}
-
-	return normalized;
-};
-
-const normalizeFavorites = (favorites?: string[]): string[] | undefined => {
-	if (!favorites) return undefined;
-
-	const valid = favorites.map((f) => normalizeCurrency(f));
-
-	return [...new Set(valid)];
-};
-
-type UpdateUserSettingsInput = {
-	base_currency?: string;
-	favorites?: string[];
-};
+const normalizeFavorites = (favorites: string[]): string[] => [
+	...new Set(favorites.map(normalizeCurrency)),
+];
 
 export const updateUserSettings = async (
 	userId: string,
 	updates: UpdateUserSettingsInput,
-) => {
+): Promise<UserSettings> => {
 	if (!updates || typeof updates !== "object") {
-		throw new AppError(400, "INVALID_BODY", "Invalid request body");
-	}
-
-	const normalizedUpdates: Partial<UpdateUserSettingsInput> = {};
-
-	// base_currency
-	if (updates.base_currency !== undefined) {
-		normalizedUpdates.base_currency = normalizeCurrency(
-			updates.base_currency,
+		throw new AppError(
+			StatusCodes.BAD_REQUEST,
+			"INVALID_BODY",
+			"Invalid request body",
 		);
 	}
 
-	// favorites
+	const normalized: Partial<UpdateUserSettingsInput> = {};
+
+	if (updates.base_currency !== undefined) {
+		normalized.base_currency = normalizeCurrency(updates.base_currency);
+	}
+
 	if (updates.favorites !== undefined) {
 		if (!Array.isArray(updates.favorites)) {
 			throw new AppError(
-				400,
+				StatusCodes.BAD_REQUEST,
 				"INVALID_FAVORITES",
 				"Favorites must be an array",
 			);
 		}
-
-		const normalized = normalizeFavorites(updates.favorites);
-
-		if (normalized !== undefined) {
-			normalizedUpdates.favorites = normalized;
-		}
+		normalized.favorites = normalizeFavorites(updates.favorites);
 	}
 
-	// nothing to update
-	if (Object.keys(normalizedUpdates).length === 0) {
-		throw new AppError(400, "NO_VALID_FIELDS", "No valid fields provided");
+	if (Object.keys(normalized).length === 0) {
+		throw new AppError(
+			StatusCodes.BAD_REQUEST,
+			"NO_VALID_FIELDS",
+			"No valid fields provided",
+		);
 	}
-
-	const cacheKey = buildCacheKey(userId);
 
 	const { data, error } = await supabase
 		.from("user_settings")
-		.update({
-			...normalizedUpdates,
-			updated_at: new Date().toISOString(),
-		})
+		.update({ ...normalized, updated_at: new Date().toISOString() })
 		.eq("user_id", userId)
 		.select()
 		.maybeSingle();
 
-	if (error) {
+	if (error)
 		throw new AppError(
-			500,
+			StatusCodes.INTERNAL_SERVER_ERROR,
 			"DATABASE_ERROR",
 			"Failed to update user settings",
 			{ message: error.message },
 		);
-	}
+	if (!data)
+		throw new AppError(
+			StatusCodes.NOT_FOUND,
+			"USER_NOT_FOUND",
+			"User not found",
+			{ userId },
+		);
 
-	if (!data) {
-		throw new AppError(404, "USER_NOT_FOUND", "User not found", { userId });
-	}
-
-	saveToMemoryCache(cacheKey, data);
-
+	memoryCache.set(buildCacheKey(userId), data);
 	return data;
 };

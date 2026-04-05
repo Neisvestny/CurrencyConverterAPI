@@ -1,10 +1,12 @@
+import { StatusCodes } from "http-status-codes";
+
 export class AppError extends Error {
-	statusCode: number;
+	statusCode: StatusCodes;
 	code: string;
 	details?: any;
 
 	constructor(
-		statusCode: number,
+		statusCode: StatusCodes,
 		code: string,
 		message: string,
 		details?: any,
